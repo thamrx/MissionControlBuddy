@@ -16,7 +16,7 @@ Download: <https://github.com/namchind/MissionControlBuddy/releases/download/1.0
 
 - 🪟 Icon + app name + window title chip on every Mission Control thumbnail
 - 🎯 Correctly resolves apps even with truncated / decorated titles (incl. Chrome)
-- 🎛️ **Preferences**: chip size, background color, opacity, long-text wrap/cut
+- 🎛️ **Preferences**: chip size, background color, opacity, long-text wrap/cut, max title length
 - 🚀 **Launch at login** (when installed as an app bundle)
 - ⚡ Smart show/hide: appears only when Mission Control is fully open & settled,
   stays hidden during partial swipes and open/close animations

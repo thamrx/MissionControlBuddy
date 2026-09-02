@@ -19,13 +19,16 @@ final class PreferencesWindowController: NSWindowController {
     private let opacitySlider = NSSlider()
     private let opacityValueLabel = NSTextField(labelWithString: "")
     private let longTextControl = NSSegmentedControl()
+    private let titleLimitCheckbox = NSButton(checkboxWithTitle: "Cut after", target: nil, action: nil)
+    private let maxCharsSlider = NSSlider()
+    private let maxCharsValueLabel = NSTextField(labelWithString: "")
     private let loginCheckbox = NSButton(checkboxWithTitle: "Launch at login", target: nil, action: nil)
     private let menuIconCheckbox = NSButton(checkboxWithTitle: "Show menu bar icon", target: nil, action: nil)
     private let loginNoteLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 500),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 540),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -93,6 +96,16 @@ final class PreferencesWindowController: NSWindowController {
         longTextControl.target = self
         longTextControl.action = #selector(longTextChanged)
 
+        titleLimitCheckbox.target = self
+        titleLimitCheckbox.action = #selector(titleLimitToggled)
+
+        maxCharsSlider.minValue = 5
+        maxCharsSlider.maxValue = 150
+        maxCharsSlider.allowsTickMarkValuesOnly = true
+        maxCharsSlider.numberOfTickMarks = 30 // steps of 5
+        maxCharsSlider.target = self
+        maxCharsSlider.action = #selector(maxCharsChanged)
+
         loginCheckbox.target = self
         loginCheckbox.action = #selector(loginToggled)
 
@@ -109,6 +122,7 @@ final class PreferencesWindowController: NSWindowController {
             [label("Background:"), colorWell],
             [label("Opacity:"), sliderRow(opacitySlider, opacityValueLabel)],
             [label("Long text:"), longTextControl],
+            [label("Title length:"), titleLimitRow()],
             [label("Startup:"), loginCheckbox],
             [label("UI:"), menuIconCheckbox],
             [NSGridCell.emptyContentView, loginNoteLabel]
@@ -181,6 +195,19 @@ final class PreferencesWindowController: NSWindowController {
         NSTextField(labelWithString: text)
     }
 
+    /// Checkbox + slider + value; the slider is only enabled when the checkbox is on.
+    private func titleLimitRow() -> NSView {
+        maxCharsValueLabel.alignment = .right
+        maxCharsValueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        maxCharsValueLabel.textColor = .secondaryLabelColor
+        let stack = NSStackView(views: [titleLimitCheckbox, maxCharsSlider, maxCharsValueLabel])
+        stack.orientation = .horizontal
+        stack.spacing = 8
+        maxCharsSlider.widthAnchor.constraint(equalToConstant: 140).isActive = true
+        maxCharsValueLabel.widthAnchor.constraint(equalToConstant: 44).isActive = true
+        return stack
+    }
+
     private func sliderRow(_ slider: NSSlider, _ valueLabel: NSTextField) -> NSView {
         valueLabel.alignment = .right
         valueLabel.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
@@ -205,6 +232,10 @@ final class PreferencesWindowController: NSWindowController {
         if let index = LongTextBehavior.allCases.firstIndex(of: prefs.longTextBehavior) {
             longTextControl.selectedSegment = index
         }
+        titleLimitCheckbox.state = prefs.titleLimitEnabled ? .on : .off
+        maxCharsSlider.integerValue = prefs.maxTitleChars
+        maxCharsSlider.isEnabled = prefs.titleLimitEnabled
+        maxCharsValueLabel.stringValue = "\(prefs.maxTitleChars) ch"
         loginCheckbox.state = LoginItem.isEnabled ? .on : .off
         menuIconCheckbox.state = prefs.showMenuBarIcon ? .on : .off
     }
@@ -231,6 +262,16 @@ final class PreferencesWindowController: NSWindowController {
         let index = longTextControl.selectedSegment
         guard index >= 0, index < LongTextBehavior.allCases.count else { return }
         prefs.longTextBehavior = LongTextBehavior.allCases[index]
+    }
+
+    @objc private func titleLimitToggled() {
+        prefs.titleLimitEnabled = titleLimitCheckbox.state == .on
+        maxCharsSlider.isEnabled = prefs.titleLimitEnabled
+    }
+
+    @objc private func maxCharsChanged() {
+        prefs.maxTitleChars = maxCharsSlider.integerValue
+        maxCharsValueLabel.stringValue = "\(prefs.maxTitleChars) ch"
     }
 
     @objc private func loginToggled() {

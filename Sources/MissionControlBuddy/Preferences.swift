@@ -30,6 +30,8 @@ final class PreferencesStore {
         static let backgroundHex = "chipBackgroundHex"
         static let backgroundOpacity = "chipBackgroundOpacity"
         static let longText = "chipLongTextBehavior"
+        static let titleLimitEnabled = "chipTitleLimitEnabled"
+        static let maxTitleChars = "chipMaxTitleChars"
         static let showMenuBarIcon = "showMenuBarIcon"
     }
 
@@ -39,6 +41,8 @@ final class PreferencesStore {
             Key.backgroundHex: "#000000",
             Key.backgroundOpacity: 0.72,
             Key.longText: LongTextBehavior.truncate.rawValue,
+            Key.titleLimitEnabled: true,
+            Key.maxTitleChars: 50,
             Key.showMenuBarIcon: true
         ])
     }
@@ -67,6 +71,25 @@ final class PreferencesStore {
         set { set(newValue.rawValue, forKey: Key.longText) }
     }
 
+    /// Whether the window title is cut after `maxTitleChars` characters.
+    /// When false the chip width is the only limit.
+    var titleLimitEnabled: Bool {
+        get { defaults.bool(forKey: Key.titleLimitEnabled) }
+        set { set(newValue, forKey: Key.titleLimitEnabled) }
+    }
+
+    /// Maximum number of characters of the window title before it is cut with
+    /// an ellipsis. Only applied when `titleLimitEnabled` is true.
+    var maxTitleChars: Int {
+        get { defaults.integer(forKey: Key.maxTitleChars) }
+        set { set(Swift.min(Swift.max(newValue, 5), 200), forKey: Key.maxTitleChars) }
+    }
+
+    /// The character limit to apply, or 0 for none.
+    var effectiveMaxTitleChars: Int {
+        titleLimitEnabled ? maxTitleChars : 0
+    }
+
     /// The resolved background color (hex + opacity).
     var backgroundColor: NSColor {
         (NSColor(hex: backgroundHex) ?? .black).withAlphaComponent(CGFloat(backgroundOpacity))
@@ -80,7 +103,8 @@ final class PreferencesStore {
 
     /// Restore every setting to its default value.
     func resetToDefaults() {
-        for key in [Key.chipScale, Key.backgroundHex, Key.backgroundOpacity, Key.longText, Key.showMenuBarIcon] {
+        for key in [Key.chipScale, Key.backgroundHex, Key.backgroundOpacity, Key.longText,
+                    Key.titleLimitEnabled, Key.maxTitleChars, Key.showMenuBarIcon] {
             defaults.removeObject(forKey: key)
         }
         NotificationCenter.default.post(name: Self.changedNotification, object: nil)

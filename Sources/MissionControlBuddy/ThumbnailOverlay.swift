@@ -56,10 +56,20 @@ struct ChipStyle {
     let scale: Double
     let backgroundColor: NSColor
     let longTextBehavior: LongTextBehavior
+    /// 0 = no character limit.
+    let maxTitleChars: Int
 
     /// Cheap change-detection token.
     var token: String {
-        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)"
+        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)|\(maxTitleChars)"
+    }
+
+    /// Applies the character limit to a window title, appending an ellipsis
+    /// when something was cut off.
+    func limitedTitle(_ title: String) -> String {
+        guard maxTitleChars > 0, title.count > maxTitleChars else { return title }
+        let kept = title.prefix(maxTitleChars).trimmingCharacters(in: .whitespaces)
+        return kept + "\u{2026}"
     }
 
     static func current() -> ChipStyle {
@@ -68,7 +78,8 @@ struct ChipStyle {
             return ChipStyle(
                 scale: prefs.chipScale,
                 backgroundColor: prefs.backgroundColor,
-                longTextBehavior: prefs.longTextBehavior
+                longTextBehavior: prefs.longTextBehavior,
+                maxTitleChars: prefs.effectiveMaxTitleChars
             )
         }
     }
@@ -116,6 +127,7 @@ final class ThumbnailLabelView: NSView {
         iconView.imageScaling = .scaleProportionallyUpOrDown
         pill.addSubview(iconView)
 
+        let windowTitle = style.limitedTitle(windowTitle)
         let showTitle = !windowTitle.isEmpty && windowTitle != appName
         let wrap = style.longTextBehavior == .wrap
 
