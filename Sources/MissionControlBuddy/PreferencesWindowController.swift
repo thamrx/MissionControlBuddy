@@ -22,13 +22,16 @@ final class PreferencesWindowController: NSWindowController {
     private let titleLimitCheckbox = NSButton(checkboxWithTitle: "Cut after", target: nil, action: nil)
     private let maxCharsSlider = NSSlider()
     private let maxCharsValueLabel = NSTextField(labelWithString: "")
+    private let showIconCheckbox = NSButton(checkboxWithTitle: "Icon", target: nil, action: nil)
+    private let showAppNameCheckbox = NSButton(checkboxWithTitle: "App name", target: nil, action: nil)
+    private let showTitleCheckbox = NSButton(checkboxWithTitle: "Window title", target: nil, action: nil)
     private let loginCheckbox = NSButton(checkboxWithTitle: "Launch at login", target: nil, action: nil)
     private let menuIconCheckbox = NSButton(checkboxWithTitle: "Show menu bar icon", target: nil, action: nil)
     private let loginNoteLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 540),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 580),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -96,6 +99,11 @@ final class PreferencesWindowController: NSWindowController {
         longTextControl.target = self
         longTextControl.action = #selector(longTextChanged)
 
+        for box in [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox] {
+            box.target = self
+            box.action = #selector(showToggled)
+        }
+
         titleLimitCheckbox.target = self
         titleLimitCheckbox.action = #selector(titleLimitToggled)
 
@@ -121,6 +129,7 @@ final class PreferencesWindowController: NSWindowController {
             [label("Chip size:"), sliderRow(scaleSlider, scaleValueLabel)],
             [label("Background:"), colorWell],
             [label("Opacity:"), sliderRow(opacitySlider, opacityValueLabel)],
+            [label("Show:"), showRow()],
             [label("Long text:"), longTextControl],
             [label("Title length:"), titleLimitRow()],
             [label("Startup:"), loginCheckbox],
@@ -195,6 +204,13 @@ final class PreferencesWindowController: NSWindowController {
         NSTextField(labelWithString: text)
     }
 
+    private func showRow() -> NSView {
+        let stack = NSStackView(views: [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox])
+        stack.orientation = .horizontal
+        stack.spacing = 12
+        return stack
+    }
+
     /// Checkbox + slider + value; the slider is only enabled when the checkbox is on.
     private func titleLimitRow() -> NSView {
         maxCharsValueLabel.alignment = .right
@@ -232,6 +248,9 @@ final class PreferencesWindowController: NSWindowController {
         if let index = LongTextBehavior.allCases.firstIndex(of: prefs.longTextBehavior) {
             longTextControl.selectedSegment = index
         }
+        showIconCheckbox.state = prefs.showIcon ? .on : .off
+        showAppNameCheckbox.state = prefs.showAppName ? .on : .off
+        showTitleCheckbox.state = prefs.showWindowTitle ? .on : .off
         titleLimitCheckbox.state = prefs.titleLimitEnabled ? .on : .off
         maxCharsSlider.integerValue = prefs.maxTitleChars
         maxCharsSlider.isEnabled = prefs.titleLimitEnabled
@@ -262,6 +281,12 @@ final class PreferencesWindowController: NSWindowController {
         let index = longTextControl.selectedSegment
         guard index >= 0, index < LongTextBehavior.allCases.count else { return }
         prefs.longTextBehavior = LongTextBehavior.allCases[index]
+    }
+
+    @objc private func showToggled() {
+        prefs.showIcon = showIconCheckbox.state == .on
+        prefs.showAppName = showAppNameCheckbox.state == .on
+        prefs.showWindowTitle = showTitleCheckbox.state == .on
     }
 
     @objc private func titleLimitToggled() {

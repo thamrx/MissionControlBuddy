@@ -58,10 +58,13 @@ struct ChipStyle {
     let longTextBehavior: LongTextBehavior
     /// 0 = no character limit.
     let maxTitleChars: Int
+    let showIcon: Bool
+    let showAppName: Bool
+    let showWindowTitle: Bool
 
     /// Cheap change-detection token.
     var token: String {
-        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)|\(maxTitleChars)"
+        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)|\(maxTitleChars)|\(showIcon)|\(showAppName)|\(showWindowTitle)"
     }
 
     /// Applies the character limit to a window title, appending an ellipsis
@@ -79,7 +82,10 @@ struct ChipStyle {
                 scale: prefs.chipScale,
                 backgroundColor: prefs.backgroundColor,
                 longTextBehavior: prefs.longTextBehavior,
-                maxTitleChars: prefs.effectiveMaxTitleChars
+                maxTitleChars: prefs.effectiveMaxTitleChars,
+                showIcon: prefs.showIcon,
+                showAppName: prefs.showAppName,
+                showWindowTitle: prefs.showWindowTitle
             )
         }
     }
@@ -111,9 +117,19 @@ final class ThumbnailLabelView: NSView {
         let titleFontSize = 10 * scale
         let inset = 6 * scale
 
+        let windowTitle = style.limitedTitle(windowTitle)
+        let showIcon = style.showIcon && icon != nil
+        let showApp = style.showAppName
+        // The title is redundant when it equals the app name that is already shown.
+        let showTitle = style.showWindowTitle && !windowTitle.isEmpty && !(showApp && windowTitle == appName)
+        guard showIcon || showApp || showTitle else { return }
+
+        let wrap = style.longTextBehavior == .wrap
+
         // Chip may not exceed the thumbnail width (minus insets).
         let maxChipWidth = max(120 * scale, bounds.width - inset * 2)
-        let maxTextWidth = max(40 * scale, maxChipWidth - iconSize - hPad * 3 - spacing)
+        let iconSpan = showIcon ? iconSize + ((showApp || showTitle) ? spacing : 0) : 0
+        let maxTextWidth = max(40 * scale, maxChipWidth - iconSpan - hPad * 2)
 
         let pill = NSView()
         pill.wantsLayer = true
@@ -122,58 +138,53 @@ final class ThumbnailLabelView: NSView {
         pill.layer?.masksToBounds = true
         addSubview(pill)
 
-        let iconView = NSImageView()
-        iconView.image = icon
-        iconView.imageScaling = .scaleProportionallyUpOrDown
-        pill.addSubview(iconView)
-
-        let windowTitle = style.limitedTitle(windowTitle)
-        let showTitle = !windowTitle.isEmpty && windowTitle != appName
-        let wrap = style.longTextBehavior == .wrap
-
-        let appLabel = makeLabel(appName, size: appFontSize, weight: .semibold,
-                                 color: .white, maxWidth: maxTextWidth,
-                                 wrap: wrap, maxLines: wrap ? 2 : 1)
-        pill.addSubview(appLabel)
-
-        var titleLabel: NSTextField?
-        if showTitle {
-            let label = makeLabel(windowTitle, size: titleFontSize, weight: .regular,
-                                  color: NSColor.white.withAlphaComponent(0.8),
-                                  maxWidth: maxTextWidth, wrap: wrap, maxLines: wrap ? 2 : 1)
-            pill.addSubview(label)
-            titleLabel = label
+        var iconView: NSImageView?
+        if showIcon {
+            let view = NSImageView()
+            view.image = icon
+            view.imageScaling = .scaleProportionallyUpOrDown
+            pill.addSubview(view)
+            iconView = view
         }
+
+        // Text lines, top to bottom, each with its measured height.
+        var lines: [(label: NSTextField, height: CGFloat)] = []
+        if showApp {
+            let label = makeLabel(appName, size: appFontSize, weight: .semibold,
+                                  color: .white, maxWidth: maxTextWidth,
+                                  wrap: wrap, maxLines: wrap ? 2 : 1)
+            let height = min(label.intrinsicContentSize.height, wrap ? appFontSize * 2.6 : appFontSize * 1.4)
+            lines.append((label, height))
+        }
+        if showTitle {
+            // Without the app name, the title takes the larger font.
+            let size = showApp ? titleFontSize : appFontSize
+            let label = makeLabel(windowTitle, size: size, weight: showApp ? .regular : .semibold,
+                                  color: showApp ? NSColor.white.withAlphaComponent(0.8) : .white,
+                                  maxWidth: maxTextWidth, wrap: wrap, maxLines: wrap ? 2 : 1)
+            let height = min(label.intrinsicContentSize.height, wrap ? size * 2.6 : size * 1.4)
+            lines.append((label, height))
+        }
+        lines.forEach { pill.addSubview($0.label) }
 
         // Measure.
-        let appSize = appLabel.intrinsicContentSize
-        let appHeight = min(appSize.height, wrap ? appFontSize * 2.6 : appFontSize * 1.4)
-        let appWidth = min(appSize.width, maxTextWidth)
+        let textWidth = lines.map { min($0.label.intrinsicContentSize.width, maxTextWidth) }.max() ?? 0
+        let lineGap = 1 * CGFloat(max(0, lines.count - 1))
+        let textBlockHeight = lines.map(\.height).reduce(0, +) + lineGap
 
-        var textWidth = appWidth
-        var textBlockHeight = appHeight
-        var titleHeight: CGFloat = 0
-        if let titleLabel {
-            let tSize = titleLabel.intrinsicContentSize
-            titleHeight = min(tSize.height, wrap ? titleFontSize * 2.6 : titleFontSize * 1.4)
-            textWidth = max(textWidth, min(tSize.width, maxTextWidth))
-            textBlockHeight += titleHeight + 1
-        }
-
-        let chipWidth = min(maxChipWidth, iconSize + hPad * 3 + spacing + textWidth)
-        let chipHeight = max(iconSize + vPad * 2, textBlockHeight + vPad * 2)
+        let chipWidth = min(maxChipWidth, hPad * 2 + iconSpan + textWidth)
+        let chipHeight = max(showIcon ? iconSize + vPad * 2 : 0, textBlockHeight + vPad * 2)
 
         pill.frame = NSRect(x: inset, y: inset, width: chipWidth, height: chipHeight)
-        iconView.frame = NSRect(x: hPad, y: (chipHeight - iconSize) / 2, width: iconSize, height: iconSize)
+        iconView?.frame = NSRect(x: hPad, y: (chipHeight - iconSize) / 2, width: iconSize, height: iconSize)
 
-        let textX = hPad + iconSize + spacing
+        let textX = hPad + iconSpan
         let textWidthFinal = max(10, chipWidth - textX - hPad)
-        if let titleLabel {
-            let topY = chipHeight - vPad - appHeight
-            appLabel.frame = NSRect(x: textX, y: topY, width: textWidthFinal, height: appHeight)
-            titleLabel.frame = NSRect(x: textX, y: topY - 1 - titleHeight, width: textWidthFinal, height: titleHeight)
-        } else {
-            appLabel.frame = NSRect(x: textX, y: (chipHeight - appHeight) / 2, width: textWidthFinal, height: appHeight)
+        var y = (chipHeight + textBlockHeight) / 2 // top of the vertically centred text block
+        for line in lines {
+            y -= line.height
+            line.label.frame = NSRect(x: textX, y: y, width: textWidthFinal, height: line.height)
+            y -= 1
         }
     }
 

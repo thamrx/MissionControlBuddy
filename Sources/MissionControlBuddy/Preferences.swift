@@ -33,6 +33,9 @@ final class PreferencesStore {
         static let titleLimitEnabled = "chipTitleLimitEnabled"
         static let maxTitleChars = "chipMaxTitleChars"
         static let showMenuBarIcon = "showMenuBarIcon"
+        static let showIcon = "chipShowIcon"
+        static let showAppName = "chipShowAppName"
+        static let showWindowTitle = "chipShowWindowTitle"
     }
 
     private init() {
@@ -43,7 +46,10 @@ final class PreferencesStore {
             Key.longText: LongTextBehavior.truncate.rawValue,
             Key.titleLimitEnabled: true,
             Key.maxTitleChars: 50,
-            Key.showMenuBarIcon: true
+            Key.showMenuBarIcon: true,
+            Key.showIcon: true,
+            Key.showAppName: true,
+            Key.showWindowTitle: true
         ])
     }
 
@@ -101,10 +107,29 @@ final class PreferencesStore {
         set { set(newValue, forKey: Key.showMenuBarIcon) }
     }
 
+    /// Show the app icon in the chip.
+    var showIcon: Bool {
+        get { defaults.bool(forKey: Key.showIcon) }
+        set { set(newValue, forKey: Key.showIcon) }
+    }
+
+    /// Show the app name in the chip.
+    var showAppName: Bool {
+        get { defaults.bool(forKey: Key.showAppName) }
+        set { set(newValue, forKey: Key.showAppName) }
+    }
+
+    /// Show the window title in the chip.
+    var showWindowTitle: Bool {
+        get { defaults.bool(forKey: Key.showWindowTitle) }
+        set { set(newValue, forKey: Key.showWindowTitle) }
+    }
+
     /// Restore every setting to its default value.
     func resetToDefaults() {
         for key in [Key.chipScale, Key.backgroundHex, Key.backgroundOpacity, Key.longText,
-                    Key.titleLimitEnabled, Key.maxTitleChars, Key.showMenuBarIcon] {
+                    Key.titleLimitEnabled, Key.maxTitleChars, Key.showMenuBarIcon,
+                    Key.showIcon, Key.showAppName, Key.showWindowTitle] {
             defaults.removeObject(forKey: key)
         }
         NotificationCenter.default.post(name: Self.changedNotification, object: nil)
