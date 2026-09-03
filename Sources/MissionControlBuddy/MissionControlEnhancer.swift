@@ -28,6 +28,14 @@ final class MissionControlEnhancer {
     private var lastLayoutSignature: String?
     private var stableLayoutTicks = 0
 
+    // Diagnostics state (see Diagnostics.swift).
+    private var lastTrusted: Bool?
+    private var lastDockReadable: Bool?
+    private var lastDockLogTime = Date.distantPast
+    private var mcOpenLogged = false
+    private var loggedThisSession = false
+    private var lastRejectionReason: String?
+
     private(set) var isEnabled = true
 
     // MARK: - Lifecycle
@@ -73,9 +81,31 @@ final class MissionControlEnhancer {
     @objc private func poll() {
         guard isEnabled else { return }
 
+        let trusted = AXIsProcessTrusted()
+        if trusted != lastTrusted {
+            lastTrusted = trusted
+            Diagnostics.log("accessibility trusted = \(trusted)")
+        }
+
         // Fast path: if MC isn't open, hide everything immediately. This is the
         // cheap top-level check, so teardown feels instant.
         guard DockAXReader.isMissionControlOpen() else {
+            if mcOpenLogged {
+                mcOpenLogged = false
+                Diagnostics.log("MC closed")
+            }
+            // Log once whenever the Dock becomes unreadable or readable again,
+            // so a broken Accessibility permission is visible in the log.
+            if Date().timeIntervalSince(lastDockLogTime) > 2 {
+                lastDockLogTime = Date()
+                let description = DockAXReader.dockTopLevelDescription()
+                let readable = !description.hasPrefix("<")
+                if readable != lastDockReadable {
+                    lastDockReadable = readable
+                    Diagnostics.log(readable ? "dock readable" : "dock not readable: \(description)")
+                }
+            }
+            loggedThisSession = false
             suppressedUntilMCClosed = false
             stableLayoutTicks = 0
             lastLayoutSignature = nil
@@ -89,7 +119,16 @@ final class MissionControlEnhancer {
             return
         }
 
+        if !mcOpenLogged {
+            mcOpenLogged = true
+            Diagnostics.log("MC open detected")
+        }
+
         guard let thumbnails = DockAXReader.currentThumbnails(), !thumbnails.isEmpty else {
+            if !loggedThisSession {
+                loggedThisSession = true
+                Diagnostics.log("Mission Control open but no thumbnails readable")
+            }
             stableLayoutTicks = 0
             lastLayoutSignature = nil
             if isShowingOverlays { hideAllOverlays() }
@@ -147,16 +186,30 @@ final class MissionControlEnhancer {
     /// - partial swipe / interactive transition (thumbnails overlap and/or
     ///   collapse toward the bottom-left)
     private func layoutIsRenderable(_ thumbnails: [Thumbnail]) -> Bool {
-        guard thumbnails.count >= 2 else { return false }
-        guard let screen = NSScreen.screens.first(where: { $0.frame.origin == .zero }) ?? NSScreen.main else {
+        if let reason = layoutRejectionReason(thumbnails) {
+            if reason != lastRejectionReason {
+                lastRejectionReason = reason
+                Diagnostics.log("layout rejected: \(reason)")
+            }
             return false
+        }
+        lastRejectionReason = nil
+        return true
+    }
+
+    /// Returns nil when the layout looks like the fully-open Mission Control
+    /// grid, or a short reason (for the diagnostics log) when it does not.
+    private func layoutRejectionReason(_ thumbnails: [Thumbnail]) -> String? {
+        guard thumbnails.count >= 2 else { return "fewer than 2 thumbnails" }
+        guard let screen = NSScreen.screens.first(where: { $0.frame.origin == .zero }) ?? NSScreen.main else {
+            return "no primary screen"
         }
 
         let screenRect = screen.frame
         let screenArea = max(1.0, screenRect.width * screenRect.height)
 
         let frames = thumbnails.compactMap { cocoaFrame(from: $0.axFrame) }
-        guard frames.count >= 2 else { return false }
+        guard frames.count >= 2 else { return "fewer than 2 frames" }
 
         // Bounding box should cover a meaningful portion of the screen.
         var bbox = frames[0]
@@ -165,7 +218,7 @@ final class MissionControlEnhancer {
 
         // If everything is clustered, we're likely in the transition.
         if bboxArea / screenArea < 0.18 {
-            return false
+            return "bbox \(Int(bbox.width))x\(Int(bbox.height)) covers \(Int(bboxArea / screenArea * 100))% of screen \(Int(screenRect.width))x\(Int(screenRect.height))"
         }
 
         // The bottom-left "pile" symptom: ONLY reject when layout is both
@@ -174,12 +227,17 @@ final class MissionControlEnhancer {
         let cornerHugging = bbox.minX < 80 && bbox.minY < 160
         let clustered = bbox.width < (screenRect.width * 0.55) && bbox.height < (screenRect.height * 0.55)
         if cornerHugging && clustered {
-            return false
+            return "corner-hugging cluster \(Int(bbox.width))x\(Int(bbox.height)) at \(Int(bbox.minX)),\(Int(bbox.minY))"
         }
 
-        // Overlap check: in real MC grid, thumbnails barely overlap. In the
-        // interactive transition they overlap heavily.
+        // Overlap check. In the interactive swipe transition thumbnails pile
+        // up on top of each other in a small area. A fully-open grid can also
+        // contain heavy overlaps when Mission Control stacks the windows of
+        // one app ("Group windows by application", and crowded grids), but
+        // then the stacks are spread over the whole screen. So heavy overlap
+        // only counts as the transition pile when the layout is clustered too.
         var heavyOverlaps = 0
+        var maxRatio: CGFloat = 0
         for i in 0..<frames.count {
             for j in (i + 1)..<frames.count {
                 let a = frames[i]
@@ -188,16 +246,18 @@ final class MissionControlEnhancer {
                 if inter.isNull { continue }
                 let interArea = inter.width * inter.height
                 let minArea = min(a.width * a.height, b.width * b.height)
-                if minArea > 0, interArea / minArea > 0.20 {
+                guard minArea > 0 else { continue }
+                let ratio = interArea / minArea
+                maxRatio = max(maxRatio, ratio)
+                if ratio > 0.6 {
                     heavyOverlaps += 1
-                    if heavyOverlaps >= frames.count { // plenty overlap → bail fast
-                        return false
-                    }
                 }
             }
         }
-
-        return true
+        if heavyOverlaps >= frames.count && clustered {
+            return "\(heavyOverlaps) heavy overlaps among \(frames.count) clustered frames (max \(Int(maxRatio * 100))%)"
+        }
+        return nil
     }
 
     // MARK: - Rendering (reuses pooled windows)
@@ -226,6 +286,11 @@ final class MissionControlEnhancer {
             }
         }
         activeCount = thumbnails.count
+
+        if !loggedThisSession {
+            loggedThisSession = true
+            Diagnostics.log("rendered \(thumbnails.count) chips")
+        }
     }
 
     /// Returns a pooled overlay window, creating one lazily if needed.

@@ -108,6 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let promptKey = "AXTrustedCheckOptionPrompt"
         let options = [promptKey: true] as CFDictionary
         let trusted = AXIsProcessTrustedWithOptions(options)
+        Diagnostics.log("accessibility trusted at launch = \(trusted)")
         if !trusted {
             let alert = NSAlert()
             alert.messageText = "Accessibility permission needed"

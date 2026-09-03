@@ -66,6 +66,14 @@ enum DockAXReader {
         return AXUIElementCreateApplication(dock.processIdentifier)
     }
 
+    /// Diagnostics: "role:title" of the Dock's top-level children.
+    static func dockTopLevelDescription() -> String {
+        guard let dock = dockElement() else { return "<no dock element>" }
+        let kids = children(dock)
+        if kids.isEmpty { return "<no children readable>" }
+        return kids.map { "\(role($0)):\(title($0))" }.joined(separator: ", ")
+    }
+
     /// Returns the "Mission Control" AXGroup if MC is currently open, else nil.
     static func missionControlGroup(in dock: AXUIElement) -> AXUIElement? {
         for child in children(dock) where role(child) == kAXGroupRole as String {
