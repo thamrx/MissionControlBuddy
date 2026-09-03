@@ -36,6 +36,7 @@ final class PreferencesStore {
         static let showIcon = "chipShowIcon"
         static let showAppName = "chipShowAppName"
         static let showWindowTitle = "chipShowWindowTitle"
+        static let showCloseButton = "chipShowCloseButton"
     }
 
     private init() {
@@ -49,7 +50,8 @@ final class PreferencesStore {
             Key.showMenuBarIcon: true,
             Key.showIcon: true,
             Key.showAppName: true,
-            Key.showWindowTitle: true
+            Key.showWindowTitle: true,
+            Key.showCloseButton: true
         ])
     }
 
@@ -125,11 +127,17 @@ final class PreferencesStore {
         set { set(newValue, forKey: Key.showWindowTitle) }
     }
 
+    /// Show a close button on the top-left corner of each thumbnail.
+    var showCloseButton: Bool {
+        get { defaults.bool(forKey: Key.showCloseButton) }
+        set { set(newValue, forKey: Key.showCloseButton) }
+    }
+
     /// Restore every setting to its default value.
     func resetToDefaults() {
         for key in [Key.chipScale, Key.backgroundHex, Key.backgroundOpacity, Key.longText,
                     Key.titleLimitEnabled, Key.maxTitleChars, Key.showMenuBarIcon,
-                    Key.showIcon, Key.showAppName, Key.showWindowTitle] {
+                    Key.showIcon, Key.showAppName, Key.showWindowTitle, Key.showCloseButton] {
             defaults.removeObject(forKey: key)
         }
         NotificationCenter.default.post(name: Self.changedNotification, object: nil)

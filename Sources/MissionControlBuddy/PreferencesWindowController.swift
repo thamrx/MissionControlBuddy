@@ -25,13 +25,14 @@ final class PreferencesWindowController: NSWindowController {
     private let showIconCheckbox = NSButton(checkboxWithTitle: "Icon", target: nil, action: nil)
     private let showAppNameCheckbox = NSButton(checkboxWithTitle: "App name", target: nil, action: nil)
     private let showTitleCheckbox = NSButton(checkboxWithTitle: "Window title", target: nil, action: nil)
+    private let showCloseCheckbox = NSButton(checkboxWithTitle: "Close button", target: nil, action: nil)
     private let loginCheckbox = NSButton(checkboxWithTitle: "Launch at login", target: nil, action: nil)
     private let menuIconCheckbox = NSButton(checkboxWithTitle: "Show menu bar icon", target: nil, action: nil)
     private let loginNoteLabel = NSTextField(labelWithString: "")
 
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 580),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 610),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -99,7 +100,7 @@ final class PreferencesWindowController: NSWindowController {
         longTextControl.target = self
         longTextControl.action = #selector(longTextChanged)
 
-        for box in [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox] {
+        for box in [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox, showCloseCheckbox] {
             box.target = self
             box.action = #selector(showToggled)
         }
@@ -205,9 +206,13 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     private func showRow() -> NSView {
-        let stack = NSStackView(views: [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox])
-        stack.orientation = .horizontal
-        stack.spacing = 12
+        let top = NSStackView(views: [showIconCheckbox, showAppNameCheckbox, showTitleCheckbox])
+        top.orientation = .horizontal
+        top.spacing = 12
+        let stack = NSStackView(views: [top, showCloseCheckbox])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
         return stack
     }
 
@@ -251,6 +256,7 @@ final class PreferencesWindowController: NSWindowController {
         showIconCheckbox.state = prefs.showIcon ? .on : .off
         showAppNameCheckbox.state = prefs.showAppName ? .on : .off
         showTitleCheckbox.state = prefs.showWindowTitle ? .on : .off
+        showCloseCheckbox.state = prefs.showCloseButton ? .on : .off
         titleLimitCheckbox.state = prefs.titleLimitEnabled ? .on : .off
         maxCharsSlider.integerValue = prefs.maxTitleChars
         maxCharsSlider.isEnabled = prefs.titleLimitEnabled
@@ -287,6 +293,7 @@ final class PreferencesWindowController: NSWindowController {
         prefs.showIcon = showIconCheckbox.state == .on
         prefs.showAppName = showAppNameCheckbox.state == .on
         prefs.showWindowTitle = showTitleCheckbox.state == .on
+        prefs.showCloseButton = showCloseCheckbox.state == .on
     }
 
     @objc private func titleLimitToggled() {

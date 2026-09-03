@@ -15,11 +15,14 @@ struct IconResolver {
     struct Resolved {
         let appName: String
         let icon: NSImage?
+        /// The real AX window behind the thumbnail, when it could be identified.
+        let window: AXUIElement?
     }
 
     private struct WindowEntry {
         let title: String
         let app: NSRunningApplication
+        let element: AXUIElement
         /// width / height of the real AX window. Used to recover the identity of
         /// title-less thumbnails (e.g. TablePlus) via aspect-ratio matching,
         /// since Mission Control scales each space uniformly.
@@ -68,7 +71,7 @@ struct IconResolver {
                 let title = DockAXReader.title(window)
                 let aspect = aspectRatio(of: window)
                 // Keep EVERY window (even title-less ones) for geometry matching.
-                windows.append(WindowEntry(title: title, app: app, aspect: aspect))
+                windows.append(WindowEntry(title: title, app: app, element: window, aspect: aspect))
                 if !title.isEmpty, titleToApp[title] == nil {
                     titleToApp[title] = app   // keep first mapping; avoid random flips
                 }
@@ -96,21 +99,21 @@ struct IconResolver {
     mutating func resolve(title: String, aspect: CGFloat = 0) -> Resolved {
         // Title-less thumbnail (e.g. TablePlus): match purely by geometry.
         if title.isEmpty {
-            if let app = claimClosestWindow(aspect: aspect) {
-                return resolved(app, fallbackName: app.localizedName ?? "")
+            if let entry = claimClosestWindow(aspect: aspect) {
+                return resolved(entry.app, fallbackName: entry.app.localizedName ?? "", window: entry.element)
             }
-            return Resolved(appName: "", icon: nil)
+            return Resolved(appName: "", icon: nil, window: nil)
         }
 
         // 1. Exact window-title match (works for non-truncated titles).
         if let app = titleToApp[title] {
-            claimWindow(matching: title)
-            return resolved(app, fallbackName: title)
+            let window = claimWindow(matching: title)
+            return resolved(app, fallbackName: title, window: window)
         }
 
         // 2. Middle-ellipsis truncation: match a real window by prefix/suffix.
-        if let app = matchTruncated(title) {
-            return resolved(app, fallbackName: title)
+        if let entry = matchTruncated(title) {
+            return resolved(entry.app, fallbackName: title, window: entry.element)
         }
 
         // 2b. Short title that is a PREFIX of a real window title. Some apps
@@ -119,7 +122,7 @@ struct IconResolver {
         //     "Gmail - Google Chrome - <profile>".
         if title.count >= 3 {
             for entry in windows where entry.title.hasPrefix(title) {
-                return resolved(entry.app, fallbackName: title)
+                return resolved(entry.app, fallbackName: title, window: entry.element)
             }
         }
 
@@ -143,24 +146,26 @@ struct IconResolver {
         }
 
         // 5. Give up on the icon; keep the title as the name.
-        return Resolved(appName: title, icon: nil)
+        return Resolved(appName: title, icon: nil, window: nil)
     }
 
     // MARK: - Helpers
 
     /// Claim the first unclaimed window whose title matches, so a subsequent
-    /// title-less thumbnail won't steal its identity via geometry.
-    private mutating func claimWindow(matching title: String) {
+    /// title-less thumbnail won't steal its identity via geometry. Returns the
+    /// claimed AX window.
+    private mutating func claimWindow(matching title: String) -> AXUIElement? {
         for (index, entry) in windows.enumerated()
         where !claimedWindowIndices.contains(index) && entry.title == title {
             claimedWindowIndices.insert(index)
-            return
+            return entry.element
         }
+        return nil
     }
 
     /// Find (and claim) the unclaimed window whose aspect ratio is closest to
     /// the thumbnail's. Returns nil when nothing is close enough.
-    private mutating func claimClosestWindow(aspect: CGFloat) -> NSRunningApplication? {
+    private mutating func claimClosestWindow(aspect: CGFloat) -> WindowEntry? {
         guard aspect > 0 else { return nil }
 
         var bestIndex: Int?
@@ -178,11 +183,11 @@ struct IconResolver {
         // MC scaling preserves aspect, so a loose match means "not this window".
         guard let bestIndex, bestDelta <= aspect * 0.08 else { return nil }
         claimedWindowIndices.insert(bestIndex)
-        return windows[bestIndex].app
+        return windows[bestIndex]
     }
 
-    private func resolved(_ app: NSRunningApplication, fallbackName: String) -> Resolved {
-        Resolved(appName: app.localizedName ?? fallbackName, icon: app.icon)
+    private func resolved(_ app: NSRunningApplication, fallbackName: String, window: AXUIElement? = nil) -> Resolved {
+        Resolved(appName: app.localizedName ?? fallbackName, icon: app.icon, window: window)
     }
 
     /// Match a middle-truncated title (containing "\u{2026}") against a real window
@@ -191,7 +196,7 @@ struct IconResolver {
     /// it. We use `contains` for the suffix rather than `hasSuffix` because some
     /// apps append extra text to their AX window title that Mission Control's
     /// thumbnail title omits — e.g. Chrome adds " - Google Chrome - <profile>".
-    private func matchTruncated(_ truncated: String) -> NSRunningApplication? {
+    private func matchTruncated(_ truncated: String) -> WindowEntry? {
         guard truncated.contains(Self.ellipsis) else { return nil }
 
         // Split on every ellipsis; the first segment is the prefix, the last is
@@ -209,7 +214,7 @@ struct IconResolver {
             guard realTitle.count >= prefix.count else { continue }
             if (prefix.isEmpty || realTitle.hasPrefix(prefix)),
                (suffix.isEmpty || realTitle.contains(suffix)) {
-                return entry.app
+                return entry
             }
         }
         return nil

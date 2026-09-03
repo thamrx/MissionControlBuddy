@@ -61,10 +61,11 @@ struct ChipStyle {
     let showIcon: Bool
     let showAppName: Bool
     let showWindowTitle: Bool
+    let showCloseButton: Bool
 
     /// Cheap change-detection token.
     var token: String {
-        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)|\(maxTitleChars)|\(showIcon)|\(showAppName)|\(showWindowTitle)"
+        "\(scale)|\(backgroundColor.hexString)|\(backgroundColor.alphaComponent)|\(longTextBehavior.rawValue)|\(maxTitleChars)|\(showIcon)|\(showAppName)|\(showWindowTitle)|\(showCloseButton)"
     }
 
     /// Applies the character limit to a window title, appending an ellipsis
@@ -85,7 +86,8 @@ struct ChipStyle {
                 maxTitleChars: prefs.effectiveMaxTitleChars,
                 showIcon: prefs.showIcon,
                 showAppName: prefs.showAppName,
-                showWindowTitle: prefs.showWindowTitle
+                showWindowTitle: prefs.showWindowTitle,
+                showCloseButton: prefs.showCloseButton
             )
         }
     }

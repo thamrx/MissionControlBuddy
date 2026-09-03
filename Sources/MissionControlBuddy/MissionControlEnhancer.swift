@@ -14,6 +14,7 @@ final class MissionControlEnhancer {
 
     private var pollTimer: Timer?
     private var overlayPool: [ThumbnailOverlayWindow] = []
+    private var closeButtonPool: [CloseButtonWindow] = []
     private var activeCount = 0
     private var iconResolver = IconResolver()
     private var isShowingOverlays = false
@@ -205,6 +206,7 @@ final class MissionControlEnhancer {
     private func render(_ thumbnails: [Thumbnail]) {
         let style = ChipStyle.current()
         iconResolver.beginPass()   // reset per-frame window claims
+        var clickTargets: [ClickInterceptor.Target] = []
         for (index, thumbnail) in thumbnails.enumerated() {
             guard let cocoaFrame = cocoaFrame(from: thumbnail.axFrame) else { continue }
 
@@ -217,15 +219,39 @@ final class MissionControlEnhancer {
             if !overlay.isVisible {
                 overlay.orderFrontRegardless()
             }
+
+            let closeButton = closeButton(at: index)
+            if style.showCloseButton, let window = resolved.window {
+                let size = 20 * CGFloat(style.scale)
+                let inset = 6 * CGFloat(style.scale)
+                closeButton.setFrameIfNeeded(NSRect(x: cocoaFrame.minX + inset,
+                                                    y: cocoaFrame.maxY - inset - size,
+                                                    width: size, height: size))
+                closeButton.update(target: window, style: style)
+                // Hit rect in AX/global (top-left origin) space for the event tap.
+                let hitRect = CGRect(x: thumbnail.axFrame.minX + inset,
+                                     y: thumbnail.axFrame.minY + inset,
+                                     width: size, height: size).insetBy(dx: -2, dy: -2)
+                clickTargets.append(ClickInterceptor.Target(rect: hitRect, button: closeButton))
+                if !closeButton.isVisible {
+                    closeButton.orderFrontRegardless()
+                }
+            } else if closeButton.isVisible {
+                closeButton.orderOut(nil)
+            }
         }
 
     // Hide any leftover overlays from a previous frame with more thumbnails.
         if thumbnails.count < activeCount {
             for index in thumbnails.count..<activeCount {
                 overlayPool[index].orderOut(nil)
+                closeButtonPool[index].orderOut(nil)
             }
         }
         activeCount = thumbnails.count
+
+        ClickInterceptor.shared.setTargets(clickTargets)
+        ClickInterceptor.shared.setEnabled(style.showCloseButton)
     }
 
     /// Returns a pooled overlay window, creating one lazily if needed.
@@ -238,10 +264,23 @@ final class MissionControlEnhancer {
         return overlay
     }
 
+    private func closeButton(at index: Int) -> CloseButtonWindow {
+        if index < closeButtonPool.count {
+            return closeButtonPool[index]
+        }
+        let button = CloseButtonWindow()
+        closeButtonPool.append(button)
+        return button
+    }
+
     private func hideAllOverlays() {
         for overlay in overlayPool where overlay.isVisible {
             overlay.orderOut(nil)
         }
+        for button in closeButtonPool where button.isVisible {
+            button.orderOut(nil)
+        }
+        ClickInterceptor.shared.setEnabled(false)
         activeCount = 0
         isShowingOverlays = false
         removeSelectionMonitor()
