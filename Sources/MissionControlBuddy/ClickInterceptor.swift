@@ -56,7 +56,7 @@ final class ClickInterceptor {
             callback: clickInterceptorCallback,
             userInfo: refcon
         ) else {
-            NSLog("ClickInterceptor: could not create event tap (Accessibility permission missing?)")
+            Diagnostics.log("ClickInterceptor: could not create event tap (Accessibility permission missing?)")
             return
         }
         self.tap = tap

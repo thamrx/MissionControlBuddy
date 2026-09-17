@@ -52,12 +52,12 @@ final class CloseButtonWindow: NSWindow {
     func performClose() {
         guard let targetWindow else { return }
         guard let button = DockAXReader.copyAttribute(targetWindow, kAXCloseButtonAttribute as String) else {
-            NSLog("CloseButton: window has no AXCloseButton")
+            Diagnostics.log("CloseButton: window has no AXCloseButton")
             return
         }
         let result = AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
         if result != .success {
-            NSLog("CloseButton: AXPress failed (\(result.rawValue))")
+            Diagnostics.log("CloseButton: AXPress failed (\(result.rawValue))")
         }
     }
 }
