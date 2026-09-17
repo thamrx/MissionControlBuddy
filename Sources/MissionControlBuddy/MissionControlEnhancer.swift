@@ -34,7 +34,11 @@ final class MissionControlEnhancer {
     private var lastDockReadable: Bool?
     private var lastDockLogTime = Date.distantPast
     private var mcOpenLogged = false
-    private var loggedThisSession = false
+    private var mcOpenedAt: Date?
+    private var axTreeDumped = false
+    private var sessionDumped = false
+    private var noThumbnailsLogged = false
+    private var renderLogged = false
     private var lastRejectionReason: String?
 
     private(set) var isEnabled = true
@@ -106,7 +110,8 @@ final class MissionControlEnhancer {
                     Diagnostics.log(readable ? "dock readable" : "dock not readable: \(description)")
                 }
             }
-            loggedThisSession = false
+            noThumbnailsLogged = false
+            renderLogged = false
             suppressedUntilMCClosed = false
             stableLayoutTicks = 0
             lastLayoutSignature = nil
@@ -122,12 +127,26 @@ final class MissionControlEnhancer {
 
         if !mcOpenLogged {
             mcOpenLogged = true
+            mcOpenedAt = Date()
+            sessionDumped = false
+            DockAXReader.reloadAnchorOverride()
             Diagnostics.log("MC open detected")
         }
 
+        // Dump the Mission Control trees once per launch (and every session when
+        // `defaults write com.local.missioncontrolbuddy axDumpEverySession -bool true`),
+        // after the open animation has settled.
+        if !sessionDumped, let openedAt = mcOpenedAt, Date().timeIntervalSince(openedAt) > 1.0 {
+            sessionDumped = true
+            if !axTreeDumped || UserDefaults.standard.bool(forKey: "axDumpEverySession") {
+                axTreeDumped = true
+                AXTreeDump.dumpMissionControl()
+            }
+        }
+
         guard let thumbnails = DockAXReader.currentThumbnails(), !thumbnails.isEmpty else {
-            if !loggedThisSession {
-                loggedThisSession = true
+            if !noThumbnailsLogged {
+                noThumbnailsLogged = true
                 Diagnostics.log("Mission Control open but no thumbnails readable")
             }
             stableLayoutTicks = 0
@@ -272,7 +291,7 @@ final class MissionControlEnhancer {
 
             let overlay = overlay(at: index)
             let aspect = thumbnail.axFrame.height > 0 ? thumbnail.axFrame.width / thumbnail.axFrame.height : 0
-            let resolved = iconResolver.resolve(title: thumbnail.title, aspect: aspect)
+            let resolved = iconResolver.resolve(title: thumbnail.title, aspect: aspect, windowID: thumbnail.windowID)
 
             overlay.setFrameIfNeeded(cocoaFrame)
             overlay.updateIfNeeded(icon: resolved.icon, appName: resolved.appName, windowTitle: thumbnail.title, style: style)
@@ -313,9 +332,13 @@ final class MissionControlEnhancer {
         ClickInterceptor.shared.setTargets(clickTargets)
         ClickInterceptor.shared.setEnabled(style.showCloseButton)
 
-        if !loggedThisSession {
-            loggedThisSession = true
-            Diagnostics.log("rendered \(thumbnails.count) chips, \(clickTargets.count) close targets")
+        if !renderLogged {
+            renderLogged = true
+            let withWID = thumbnails.filter { $0.windowID != nil }.count
+            let anchor = DockAXReader.lastHost == .windowManager
+                ? (DockAXReader.windowManagerAnchorIsCenter ? " anchor=center" : " anchor=origin")
+                : ""
+            Diagnostics.log("rendered \(thumbnails.count) chips, \(clickTargets.count) close targets (host=\(DockAXReader.lastHost.rawValue)\(anchor), wid on \(withWID))")
         }
     }
 
