@@ -21,6 +21,9 @@ final class MissionControlEnhancer {
 
     private var suppressedUntilMCClosed = false
     private var mouseMonitor: Any?
+    /// Bumped on every mouse-down so a pending restore from an earlier
+    /// mouse-up is ignored.
+    private var clickGeneration = 0
 
     /// Signature of the last-seen thumbnail layout. Used to detect whether the
     /// thumbnails are STABLE (settled) vs animating (opening/closing). We only
@@ -361,7 +364,7 @@ final class MissionControlEnhancer {
         return button
     }
 
-    private func hideAllOverlays() {
+    private func hideAllOverlays(keepSelectionMonitor: Bool = false) {
         for overlay in overlayPool where overlay.isVisible {
             overlay.orderOut(nil)
         }
@@ -371,20 +374,53 @@ final class MissionControlEnhancer {
         ClickInterceptor.shared.setEnabled(false)
         activeCount = 0
         isShowingOverlays = false
-        removeSelectionMonitor()
+        if !keepSelectionMonitor {
+            removeSelectionMonitor()
+        }
     }
 
     private func installSelectionMonitor() {
         guard mouseMonitor == nil else { return }
-        // Any click while Mission Control is open usually means "select a window".
-        // Hide immediately so overlays never linger over the chosen app.
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+        // A click while Mission Control is open usually means "select a window".
+        // Hide on mouse-down so overlays never linger over the chosen app. A drag
+        // (moving a window to another Space or display) also starts with a
+        // mouse-down but leaves Mission Control open, so on mouse-up bring the
+        // overlays back once it is clear Mission Control stayed open.
+        let mask: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown,
+                                           .leftMouseUp, .rightMouseUp, .otherMouseUp]
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            let isDown = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type)
             Task { @MainActor in
                 guard let self else { return }
-                if self.isShowingOverlays {
-                    self.suppressedUntilMCClosed = true
-                    self.hideAllOverlays()
+                if isDown {
+                    self.clickGeneration += 1
+                    if self.isShowingOverlays {
+                        self.suppressedUntilMCClosed = true
+                        self.hideAllOverlays(keepSelectionMonitor: true)
+                    }
+                } else if self.suppressedUntilMCClosed {
+                    self.scheduleRestoreAfterClick()
                 }
+            }
+        }
+    }
+
+    /// Mission Control removes its accessibility group well within this delay
+    /// when a click selects a window, so still being open means the click was
+    /// a drag (or did nothing) and the overlays should come back.
+    private func scheduleRestoreAfterClick() {
+        let generation = clickGeneration
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self,
+                      generation == self.clickGeneration,
+                      self.suppressedUntilMCClosed,
+                      DockAXReader.isMissionControlOpen()
+                else { return }
+                self.suppressedUntilMCClosed = false
+                // Windows may have moved; wait for the layout to settle again.
+                self.stableLayoutTicks = 0
+                self.lastLayoutSignature = nil
             }
         }
     }
