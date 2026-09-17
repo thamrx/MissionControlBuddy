@@ -34,6 +34,10 @@ final class CloseButtonWindow: NSWindow {
         (contentView as? CloseButtonView)?.setPressed(pressed)
     }
 
+    func setHovered(_ hovered: Bool) {
+        (contentView as? CloseButtonView)?.setHovered(hovered)
+    }
+
     func setFrameIfNeeded(_ newFrame: NSRect) {
         if frame != newFrame {
             setFrame(newFrame, display: false, animate: false)
@@ -67,6 +71,7 @@ final class CloseButtonView: NSView {
 
     private var background: NSColor = NSColor.black.withAlphaComponent(0.72)
     private var isPressed = false
+    private var isHovered = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -85,10 +90,11 @@ final class CloseButtonView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 1, dy: 1)
         let circle = NSBezierPath(ovalIn: rect)
-        (isPressed ? background.blended(withFraction: 0.3, of: .white) ?? background : background).setFill()
+        let fraction: CGFloat = isPressed ? 0.3 : (isHovered ? 0.15 : 0)
+        (background.blended(withFraction: fraction, of: .white) ?? background).setFill()
         circle.fill()
-        NSColor.white.withAlphaComponent(0.35).setStroke()
-        circle.lineWidth = 1
+        (isHovered ? NSColor.controlAccentColor : NSColor.white.withAlphaComponent(0.35)).setStroke()
+        circle.lineWidth = isHovered ? 1.5 : 1
         circle.stroke()
 
         let cross = NSBezierPath()
@@ -107,6 +113,12 @@ final class CloseButtonView: NSView {
     func setPressed(_ pressed: Bool) {
         guard pressed != isPressed else { return }
         isPressed = pressed
+        needsDisplay = true
+    }
+
+    func setHovered(_ hovered: Bool) {
+        guard hovered != isHovered else { return }
+        isHovered = hovered
         needsDisplay = true
     }
 }

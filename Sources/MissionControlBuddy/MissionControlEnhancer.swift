@@ -314,7 +314,8 @@ final class MissionControlEnhancer {
                 let hitRect = CGRect(x: thumbnail.axFrame.minX + inset,
                                      y: thumbnail.axFrame.minY + inset,
                                      width: size, height: size).insetBy(dx: -2, dy: -2)
-                clickTargets.append(ClickInterceptor.Target(rect: hitRect, button: closeButton))
+                clickTargets.append(ClickInterceptor.Target(rect: hitRect, button: closeButton,
+                                                            thumbnailFrame: cocoaFrame, overlay: overlay))
                 if !closeButton.isVisible {
                     closeButton.orderFrontRegardless()
                 }
