@@ -9,6 +9,9 @@ import ApplicationServices
 /// tap that swallows the mouse-down and mouse-up when they land on one of our
 /// close buttons. All other events pass through untouched. The tap is only
 /// enabled while overlays are showing.
+///
+/// The same tap watches mouse movement to highlight the thumbnail a hovered
+/// close button belongs to, which matters when thumbnails are stacked.
 @MainActor
 final class ClickInterceptor {
 
@@ -17,6 +20,10 @@ final class ClickInterceptor {
         /// space CGEvent locations use.
         let rect: CGRect
         let button: CloseButtonWindow
+        /// The thumbnail this button closes, in Cocoa screen coordinates.
+        let thumbnailFrame: NSRect
+        /// The chip overlay of that thumbnail, raised together with the button.
+        let overlay: NSWindow
     }
 
     static let shared = ClickInterceptor()
@@ -25,12 +32,23 @@ final class ClickInterceptor {
     private var runLoopSource: CFRunLoopSource?
     private var targets: [Target] = []
     private var pressed: Target?
+    private var hovered: Target?
+    private lazy var highlight = ThumbnailHighlightWindow()
 
     private init() {}
 
     /// Replace the set of clickable rects for the current frame.
     func setTargets(_ targets: [Target]) {
         self.targets = targets
+        // Keep the hover across re-renders, following the thumbnail if it moved.
+        if let current = hovered {
+            if let updated = targets.first(where: { $0.button === current.button }) {
+                hovered = updated
+                highlight.show(around: updated.thumbnailFrame)
+            } else {
+                clearHover()
+            }
+        }
     }
 
     func setEnabled(_ enabled: Bool) {
@@ -42,11 +60,13 @@ final class ClickInterceptor {
             targets.removeAll()
             pressed?.button.setPressed(false)
             pressed = nil
+            clearHover()
         }
     }
 
     private func createTap() {
         let mask = (1 << CGEventType.leftMouseDown.rawValue) | (1 << CGEventType.leftMouseUp.rawValue)
+            | (1 << CGEventType.mouseMoved.rawValue) | (1 << CGEventType.leftMouseDragged.rawValue)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         guard let tap = CGEvent.tapCreate(
             tap: .cghidEventTap,
@@ -79,11 +99,40 @@ final class ClickInterceptor {
         }
     }
 
+    private func updateHover(at location: CGPoint) {
+        if let current = hovered, current.rect.contains(location) { return }
+        guard let target = targets.first(where: { $0.rect.contains(location) }) else {
+            clearHover()
+            return
+        }
+        hovered?.button.setHovered(false)
+        hovered = target
+        // Stacking order: highlight, then the thumbnail's chip, then its button,
+        // so a stacked thumbnail's chip and button end up on top.
+        highlight.show(around: target.thumbnailFrame)
+        highlight.orderFrontRegardless()
+        target.overlay.orderFrontRegardless()
+        target.button.orderFrontRegardless()
+        target.button.setHovered(true)
+    }
+
+    private func clearHover() {
+        hovered?.button.setHovered(false)
+        hovered = nil
+        highlight.orderOut(nil)
+    }
+
     /// Returns true when the event must be swallowed.
     fileprivate func handle(_ type: CGEventType, at location: CGPoint) -> Bool {
         switch type {
+        case .mouseMoved, .leftMouseDragged:
+            updateHover(at: location)
+            return false
         case .leftMouseDown:
-            guard let target = targets.first(where: { $0.rect.contains(location) }) else { return false }
+            // Prefer the highlighted target so the click closes what is shown.
+            let hit = hovered.flatMap { $0.rect.contains(location) ? $0 : nil }
+                ?? targets.first(where: { $0.rect.contains(location) })
+            guard let target = hit else { return false }
             pressed = target
             target.button.setPressed(true)
             return true
