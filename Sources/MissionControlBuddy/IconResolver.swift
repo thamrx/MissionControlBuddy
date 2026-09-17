@@ -1,6 +1,11 @@
 import AppKit
 import ApplicationServices
 
+/// Private but long-stable API (used by yabai, AltTab, Hammerspoon) that maps
+/// an AX window element to its CGWindowID.
+@_silgen_name("_AXUIElementGetWindow")
+private func _AXUIElementGetWindow(_ element: AXUIElement, _ windowID: UnsafeMutablePointer<CGWindowID>) -> AXError
+
 /// Resolves a Mission Control thumbnail title to its owning app's icon + name.
 ///
 /// Mission Control exposes NO app identity on its thumbnail buttons (proven by
@@ -20,6 +25,8 @@ struct IconResolver {
     private struct WindowEntry {
         let title: String
         let app: NSRunningApplication
+        /// CGWindowID of the AX window, when it could be read.
+        let windowID: CGWindowID?
         /// width / height of the real AX window. Used to recover the identity of
         /// title-less thumbnails (e.g. TablePlus) via aspect-ratio matching,
         /// since Mission Control scales each space uniformly.
@@ -68,7 +75,10 @@ struct IconResolver {
                 let title = DockAXReader.title(window)
                 let aspect = aspectRatio(of: window)
                 // Keep EVERY window (even title-less ones) for geometry matching.
-                windows.append(WindowEntry(title: title, app: app, aspect: aspect))
+                var windowID: CGWindowID = 0
+                let hasWindowID = _AXUIElementGetWindow(window, &windowID) == .success && windowID != 0
+                windows.append(WindowEntry(title: title, app: app,
+                                           windowID: hasWindowID ? windowID : nil, aspect: aspect))
                 if !title.isEmpty, titleToApp[title] == nil {
                     titleToApp[title] = app   // keep first mapping; avoid random flips
                 }
@@ -93,7 +103,13 @@ struct IconResolver {
     /// `aspect` is the thumbnail's width/height, used to recover the identity of
     /// title-less windows (Mission Control scales each space uniformly, so the
     /// thumbnail aspect ratio matches the real window's).
-    mutating func resolve(title: String, aspect: CGFloat = 0) -> Resolved {
+    mutating func resolve(title: String, aspect: CGFloat = 0, windowID: Int? = nil) -> Resolved {
+        // 0. macOS 27 thumbnails carry the CGWindowID of their window: exact match,
+        //    no title heuristics needed.
+        if let windowID, let app = claimWindow(id: CGWindowID(windowID)) {
+            return resolved(app, fallbackName: title)
+        }
+
         // Title-less thumbnail (e.g. TablePlus): match purely by geometry.
         if title.isEmpty {
             if let app = claimClosestWindow(aspect: aspect) {
@@ -147,6 +163,23 @@ struct IconResolver {
     }
 
     // MARK: - Helpers
+
+    /// Claim the window with this CGWindowID. When it is not among the AX
+    /// windows read at refresh (for example an app that is not a regular app),
+    /// fall back to the window server's owner PID so the icon is still right.
+    private mutating func claimWindow(id windowID: CGWindowID) -> NSRunningApplication? {
+        if let index = windows.firstIndex(where: { $0.windowID == windowID }) {
+            claimedWindowIndices.insert(index)
+            return windows[index].app
+        }
+        guard
+            let info = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
+            let pid = info.first?[kCGWindowOwnerPID as String] as? pid_t
+        else {
+            return nil
+        }
+        return NSRunningApplication(processIdentifier: pid)
+    }
 
     /// Claim the first unclaimed window whose title matches, so a subsequent
     /// title-less thumbnail won't steal its identity via geometry.
