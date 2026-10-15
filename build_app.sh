@@ -7,8 +7,12 @@
 #   * a stable Accessibility permission entry (tied to the bundle, not Terminal)
 #
 # Usage:
-#   ./build_app.sh            # build the .app into ./dist
-#   ./build_app.sh --install  # also copy it to /Applications
+#   ./build_app.sh              # build the .app into ./dist
+#   ./build_app.sh --install    # also copy it to /Applications
+#   ./build_app.sh --universal  # build for Apple Silicon and Intel
+#
+# The version shown in About comes from VERSION (default 1.0.2), for example:
+#   VERSION=1.0.2-local.1 ./build_app.sh --universal
 #
 
 set -euo pipefail
@@ -19,11 +23,22 @@ DIST_DIR="dist"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 MACOS_DIR="$APP_DIR/Contents/MacOS"
 RESOURCES_DIR="$APP_DIR/Contents/Resources"
+VERSION="${VERSION:-1.0.2}"
+
+INSTALL=0
+ARCH_FLAGS=()
+for arg in "$@"; do
+    case "$arg" in
+        --install) INSTALL=1 ;;
+        --universal) ARCH_FLAGS=(--arch arm64 --arch x86_64) ;;
+        *) echo "Unknown option: $arg"; exit 1 ;;
+    esac
+done
 
 echo "🔨 Building release binary…"
-swift build -c release
+swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
 
-BIN_PATH="$(swift build -c release --show-bin-path)/$APP_NAME"
+BIN_PATH="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)/$APP_NAME"
 if [ ! -f "$BIN_PATH" ]; then
     echo "❌ Built binary not found at $BIN_PATH"
     exit 1
@@ -55,9 +70,9 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
     <key>CFBundleIdentifier</key>
     <string>$BUNDLE_ID</string>
     <key>CFBundleVersion</key>
-    <string>1.0.1</string>
+    <string>$VERSION</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.1</string>
+    <string>$VERSION</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleExecutable</key>
@@ -80,7 +95,7 @@ codesign --force --deep --sign - "$APP_DIR" || echo "⚠️  codesign failed (co
 
 echo "✅ Built: $APP_DIR"
 
-if [ "${1:-}" == "--install" ]; then
+if [ "$INSTALL" == 1 ]; then
     echo "🚚 Installing to /Applications…"
     rm -rf "/Applications/$APP_NAME.app"
     cp -R "$APP_DIR" "/Applications/"
