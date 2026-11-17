@@ -138,28 +138,39 @@ enum DockAXReader {
     /// top-level children (no deep tree walk), so it's fast enough to call often
     /// for instant teardown detection.
     static func isMissionControlOpen() -> Bool {
-        guard let dock = dockElement() else { return false }
-        return missionControlGroup(in: dock) != nil
+        if let dock = dockElement(), missionControlGroup(in: dock) != nil {
+            return true
+        }
+        return !windowManagerDisplays().isEmpty
+    }
+
+    /// macOS 27: the per-display Mission Control groups under WindowManager.
+    /// Since 27.2 the Dock no longer adds its "Mission Control" stub group, so
+    /// these are the only sign that Mission Control is open.
+    static func windowManagerDisplays() -> [AXUIElement] {
+        guard let windowManager = windowManagerElement() else { return [] }
+        return children(windowManager).filter { identifier($0) == "mc.display" }
     }
 
     /// Reads all thumbnail buttons under the Mission Control group.
     /// Returns nil when Mission Control is not open.
     @MainActor static func currentThumbnails() -> [Thumbnail]? {
-        guard let dock = dockElement() else { return nil }
-        guard let mcGroup = missionControlGroup(in: dock) else { return nil }
-
         var results: [Thumbnail] = []
-        collectThumbnails(from: mcGroup, into: &results, depth: 0)
-        if !results.isEmpty || !children(mcGroup).isEmpty {
-            lastHost = .dock
-            return results
+        if let dock = dockElement(), let mcGroup = missionControlGroup(in: dock) {
+            collectThumbnails(from: mcGroup, into: &results, depth: 0)
+            if !results.isEmpty || !children(mcGroup).isEmpty {
+                lastHost = .dock
+                return results
+            }
         }
 
-        // macOS 27: the Dock's group is an empty stub while Mission Control is
-        // open; read the displays from WindowManager instead.
+        // macOS 27: the Dock's group is an empty stub (27.0/27.1) or missing
+        // (27.2+) while Mission Control is open; read the displays from
+        // WindowManager instead.
+        let displays = windowManagerDisplays()
+        if displays.isEmpty { return nil }
         lastHost = .windowManager
-        guard let windowManager = windowManagerElement() else { return results }
-        for display in children(windowManager) where identifier(display) == "mc.display" {
+        for display in displays {
             // Window thumbnails are direct AXButton children of the display
             // (there is no mc.windows container anymore). The Spaces bar is a
             // separate mc.spaces group and is skipped this way.
